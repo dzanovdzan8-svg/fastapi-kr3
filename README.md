@@ -1,33 +1,52 @@
-# Контрольная работа №3 - FastAPI
+# Контрольная работа 3 - FastAPI
 
 ## Установка и запуск
 
-1. Установите зависимости:
-   pip install -r requirements.txt
+1. Установить зависимости:
+pip install -r requirements.txt
 
-2. Переименуйте файл app (1).py в app.py (чтобы убрать пробел в названии).
+2. Создать файл .env на основе .env.example:
+cp .env.example .env
 
-3. Запустите сервер:
-   uvicorn app:app --reload
+3. Запустить приложение:
+python app.py
 
-## Тестирование (curl)
+или
 
-### 3.1 Создание пользователя
-curl -X POST http://localhost:8000/create_user -H "Content-Type: application/json" -d '{"name":"User","email":"user@test.com","age":20}'
+uvicorn app:app --reload
 
-### 3.2 Поиск товаров
-curl "http://localhost:8000/products/search?keyword=code"
+## Тестирование
 
-### 5.1 Логин (Cookie)
-# 1. Логинимся и сохраняем куку в файл cookies.txt
-curl -c cookies.txt -X POST http://localhost:8000/login -H "Content-Type: application/json" -d '{"username":"mihail","password":"secure1234"}'
+Регистрация пользователя:
+curl -X POST http://localhost:8000/register -H "Content-Type: application/json" -d '{"username":"test","password":"12345678"}'
 
-# 2. Проверяем доступ к профилю с помощью куки
-curl -b cookies.txt http://localhost:8000/user
+Логин (JWT):
+curl -X POST http://localhost:8000/login -H "Content-Type: application/json" -d '{"username":"test","password":"12345678"}'
 
-### 5.2 Логин с HMAC
-curl -c cookies.txt -X POST http://localhost:8000/login_signed -H "Content-Type: application/json" -d '{"username":"admin","password":"adminpass"}'
-curl -b cookies.txt http://localhost:8000/profile
+Логин (Basic Auth):
+curl -u admin:secret http://localhost:8000/login_basic
 
-### 5.4 Заголовки
-curl -H "User-Agent: TestBot" -H "Accept-Language: ru-RU" http://localhost:8000/headers
+Создание Todo:
+curl -X POST http://localhost:8000/todos -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"title":"Test","description":"Desc"}'
+
+Получение Todo:
+curl http://localhost:8000/todos/1 -H "Authorization: Bearer <token>"
+
+Обновление Todo:
+curl -X PUT http://localhost:8000/todos/1 -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"completed":true}'
+
+Удаление Todo:
+curl -X DELETE http://localhost:8000/todos/1 -H "Authorization: Bearer <token>"
+
+Приватный ресурс:
+curl http://localhost:8000/protected_resource -H "Authorization: Bearer <token>"
+
+## Режимы работы
+
+DEV (по умолчанию):
+- Документация доступна на /docs (защищена Basic Auth)
+- /redoc скрыт
+
+PROD:
+- Установить MODE=PROD в .env
+- Вся документация отключена (404)
