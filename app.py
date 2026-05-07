@@ -15,7 +15,7 @@ from database import get_db_connection, init_db
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key_change_me")
+SECRET_KEY = os.getenv("SECRET_KEY", "dev_secret_key")
 ALGORITHM = "HS256"
 MODE = os.getenv("MODE", "DEV")
 DOCS_USER = os.getenv("DOCS_USER", "admin")
@@ -37,7 +37,7 @@ def verify_password(plain, hashed):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def create_access_token( dict):
+def create_access_token(data: dict):
     expire = datetime.utcnow() + timedelta(minutes=30)
     to_encode = data.copy()
     to_encode.update({"exp": expire})
@@ -47,7 +47,11 @@ def get_current_user_basic(credentials: HTTPBasicCredentials = Depends(security)
     correct_user = secrets.compare_digest(credentials.username, DOCS_USER)
     correct_pass = secrets.compare_digest(credentials.password, DOCS_PASSWORD)
     if not (correct_user and correct_pass):
-        raise HTTPException(status_code=401, detail="Invalid credentials", headers={"WWW-Authenticate": "Basic"})
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"}
+        )
     return credentials.username
 
 def get_user_from_token(token: str):
@@ -60,12 +64,16 @@ def get_user_from_token(token: str):
 async def get_current_jwt_user(authorization: str = Header(None)):
     if authorization is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer":
+    
+    parts = authorization.split(" ")
+    if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(status_code=401, detail="Invalid scheme")
+    
+    token = parts[1]
     username = get_user_from_token(token)
     if username is None or username not in fake_users_db:
         raise HTTPException(status_code=401, detail="Invalid token")
+    
     return fake_users_db[username]
 
 def check_role(role: str):
@@ -91,13 +99,21 @@ async def register(request: Request, user: User):
         raise HTTPException(status_code=409, detail="User already exists")
     
     hashed = get_password_hash(user.password)
-    fake_users_db[user.username] = {"username": user.username, "hashed_password": hashed, "role": "user"}
+    fake_users_db[user.username] = {
+        "username": user.username,
+        "hashed_password": hashed,
+        "role": "user"
+    }
     
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("INSERT INTO users (username, password) VALUES (?, ?)", (user.username, hashed))
+    cur.execute(
+        "INSERT INTO users (username, password) VALUES (?, ?)",
+        (user.username, hashed)
+    )
     conn.commit()
     conn.close()
+    
     return {"message": "New user created"}
 
 @app.get("/login_basic")
@@ -106,9 +122,10 @@ async def login_basic(current_user: str = Depends(get_current_user_basic)):
 
 @app.post("/login")
 @limiter.limit("5/minute")
-async def login_jwt(request: Request, login_ LoginRequest):
+async def login_jwt(request: Request, login_data: LoginRequest):
     if login_data.username not in fake_users_db:
         raise HTTPException(status_code=404, detail="User not found")
+    
     user = fake_users_db[login_data.username]
     if not verify_password(login_data.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Authorization failed")
@@ -137,8 +154,10 @@ async def create_todo(todo: TodoCreate, current_user: dict = Depends(get_current
     global todo_counter
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("INSERT INTO todos (title, description, completed, owner) VALUES (?, ?, 0, ?)",
-                (todo.title, todo.description, current_user["username"]))
+    cur.execute(
+        "INSERT INTO todos (title, description, completed, owner) VALUES (?, ?, 0, ?)",
+        (todo.title, todo.description, current_user["username"])
+    )
     conn.commit()
     new_id = cur.lastrowid
     conn.close()
@@ -148,27 +167,37 @@ async def create_todo(todo: TodoCreate, current_user: dict = Depends(get_current
 async def get_todo(todo_id: int, current_user: dict = Depends(get_current_jwt_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM todos WHERE id = ? AND owner = ?", (todo_id, current_user["username"]))
+    cur.execute(
+        "SELECT * FROM todos WHERE id = ? AND owner = ?",
+        (todo_id, current_user["username"])
+    )
     row = cur.fetchone()
     conn.close()
+    
     if not row:
         raise HTTPException(status_code=404, detail="Todo not found")
+    
     return Todo(id=row[0], title=row[1], description=row[2], completed=bool(row[3]))
 
 @app.put("/todos/{todo_id}")
 async def update_todo(todo_id: int, update: TodoUpdate, current_user: dict = Depends(get_current_jwt_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM todos WHERE id = ? AND owner = ?", (todo_id, current_user["username"]))
+    
+    cur.execute(
+        "SELECT * FROM todos WHERE id = ? AND owner = ?",
+        (todo_id, current_user["username"])
+    )
     row = cur.fetchone()
+    
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Todo not found")
     
     data = update.model_dump(exclude_unset=True)
-    if "completed" in 
+    if "completed" in data:
         data["completed"] = 1 if data["completed"] else 0
-        
+    
     sets = [f"{k} = ?" for k in data.keys()]
     vals = list(data.values()) + [todo_id, current_user["username"]]
     cur.execute(f"UPDATE todos SET {', '.join(sets)} WHERE id = ? AND owner = ?", vals)
@@ -177,16 +206,22 @@ async def update_todo(todo_id: int, update: TodoUpdate, current_user: dict = Dep
     cur.execute("SELECT * FROM todos WHERE id = ?", (todo_id,))
     updated = cur.fetchone()
     conn.close()
+    
     return Todo(id=updated[0], title=updated[1], description=updated[2], completed=bool(updated[3]))
 
 @app.delete("/todos/{todo_id}")
 async def delete_todo(todo_id: int, current_user: dict = Depends(get_current_jwt_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM todos WHERE id = ? AND owner = ?", (todo_id, current_user["username"]))
+    cur.execute(
+        "DELETE FROM todos WHERE id = ? AND owner = ?",
+        (todo_id, current_user["username"])
+    )
+    
     if cur.rowcount == 0:
         conn.close()
         raise HTTPException(status_code=404, detail="Todo not found")
+    
     conn.commit()
     conn.close()
     return {"message": "Todo deleted"}
